@@ -157,7 +157,7 @@ static uv_check_t gc_check;
 static uv_idle_t gc_idle;
 static uv_timer_t gc_timer;
 bool need_gc;
-static bool no_idle_notification; // command line flag
+static bool no_idle_notification = true; // command line flag
 
 
 #define FAST_TICK 700.
@@ -184,7 +184,7 @@ static void StopGCTimer () {
 static void Idle(uv_idle_t* watcher, int status) {
   assert((uv_idle_t*) watcher == &gc_idle);
 
-  fprintf(stderr, "node::Idle()\n");
+  fprintf(stderr, "voxer patched node - idle notification called somehow\n");
   if (V8::IdleNotification()) {
     uv_idle_stop(&gc_idle);
     StopGCTimer();
@@ -2560,7 +2560,7 @@ char** Init(int argc, char *argv[]) {
   uv_unref(uv_default_loop());
 
   if (!no_idle_notification) {
-
+    fprintf(stderr, "Voxer patched node - idle GC notification enabled\n");
     uv_check_init(uv_default_loop(), &gc_check);
     uv_check_start(&gc_check, node::Check);
     uv_unref(uv_default_loop());
@@ -2570,6 +2570,8 @@ char** Init(int argc, char *argv[]) {
 
     uv_timer_init(uv_default_loop(), &gc_timer);
     uv_unref(uv_default_loop());
+  } else {
+    fprintf(stderr, "Voxer patched node - disabling idle notification\n");
   }
 
   V8::SetFatalErrorHandler(node::OnFatalError);
