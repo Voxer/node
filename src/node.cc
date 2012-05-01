@@ -2570,8 +2570,6 @@ char** Init(int argc, char *argv[]) {
 
     uv_timer_init(uv_default_loop(), &gc_timer);
     uv_unref(uv_default_loop());
-  } else {
-    fprintf(stderr, "Voxer patched node - disabling idle notification\n");
   }
 
   V8::SetFatalErrorHandler(node::OnFatalError);
