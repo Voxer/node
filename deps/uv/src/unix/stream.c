@@ -33,6 +33,7 @@
 #include <sys/uio.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <limits.h> /* IOV_MAX */
 
 
 static void uv__stream_connect(uv_stream_t*);
@@ -352,12 +353,27 @@ static void uv__write_req_finish(uv_write_t* req) {
 }
 
 
+static int uv__getiovmax() {
+#if defined(IOV_MAX)
+  return IOV_MAX;
+#elif defined(_SC_IOV_MAX)
+  static int iovmax = -1;
+  if (iovmax == -1)
+    iovmax = sysconf(_SC_IOV_MAX);
+  return iovmax;
+#else
+  return 1024;
+#endif
+}
+
+
 /* On success returns NULL. On error returns a pointer to the write request
  * which had the error.
  */
 static void uv__write(uv_stream_t* stream) {
   uv_write_t* req;
   struct iovec* iov;
+  int iovmax;
   int iovcnt;
   ssize_t n;
 
@@ -388,6 +404,12 @@ start:
   assert(sizeof(uv_buf_t) == sizeof(struct iovec));
   iov = (struct iovec*) &(req->bufs[req->write_index]);
   iovcnt = req->bufcnt - req->write_index;
+
+  iovmax = uv__getiovmax();
+
+  /* Limit iov count to avoid EINVALs from writev() */
+  if (iovcnt > iovmax)
+    iovcnt = iovmax;
 
   /*
    * Now do the actual writev. Note that we've been updating the pointers
