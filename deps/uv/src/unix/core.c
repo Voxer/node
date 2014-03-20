@@ -428,6 +428,9 @@ int uv__accept(int sockfd) {
   int peerfd;
 
   assert(sockfd >= 0);
+  struct sockaddr addr;
+  socklen_t socklen = sizeof(addr);
+  memset(&addr,0,sizeof(addr));
 
   while (1) {
 #if __linux__
@@ -454,7 +457,7 @@ int uv__accept(int sockfd) {
 skip:
 #endif
 
-    peerfd = accept(sockfd, NULL, NULL);
+    peerfd = accept(sockfd, &addr, &socklen);
 
     if (peerfd == -1) {
       if (errno == EINTR)
