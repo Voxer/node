@@ -399,7 +399,7 @@ void uv_freeaddrinfo(struct addrinfo* ai) {
 int uv__socket(int domain, int type, int protocol) {
   int sockfd;
 
-#if defined(SOCK_NONBLOCK) && defined(SOCK_CLOEXEC)
+#if 0 && defined(SOCK_NONBLOCK) && defined(SOCK_CLOEXEC)
   sockfd = socket(domain, type | SOCK_NONBLOCK | SOCK_CLOEXEC, protocol);
 
   if (sockfd != -1)
