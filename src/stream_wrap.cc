@@ -584,6 +584,7 @@ Handle<Value> StreamWrap::Writev(const Arguments& args) {
 
   req_wrap->Dispatched();
   req_wrap->object_->Set(bytes_sym, Number::New(bytes));
+  req_wrap->object_->SetHiddenValue(buffer_sym, chunks);
 
   wrap->UpdateWriteQueueSize();
 
