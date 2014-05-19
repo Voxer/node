@@ -905,6 +905,7 @@ Failure* Isolate::StackOverflow() {
   // double fault with another stack overflow exception, we use a
   // precomputed message.
   DoThrow(*exception, NULL);
+  abort();
   return Failure::Exception();
 }
 
