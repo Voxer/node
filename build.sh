@@ -32,13 +32,25 @@ case "$(uname)" in
 esac
 
 export DESTDIR=$out
+
+echo '> running make clean'
+make clean > /dev/null
+
+echo "> running ./configure ${configure_opts[@]}"
 ./configure "${configure_opts[@]}" >/dev/null || fatal 'failed to configure'
+
+echo '> running make'
 make -j 8 &> /dev/null                        || fatal 'failed to run `make`'
+
+echo '> running make install'
 make install > /dev/null                      || exit 1
 
+echo "> copying files to $out"
 cd "$out" || exit 1
 mv opt/local/* ./
 rm -r opt/
 
-echo "node built in $SECONDS seconds, saved to $out"
+echo "> node built in $SECONDS seconds, saved to $out"
+echo
+
 sha256sum bin/node
