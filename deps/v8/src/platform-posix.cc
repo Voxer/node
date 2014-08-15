@@ -94,6 +94,12 @@ void OS::Guard(void* address, const size_t size) {
 
 
 void* OS::GetRandomMmapAddr() {
+#if defined(__native_client__)
+  // TODO(bradchen): restore randomization once Native Client gets
+  // smarter about using mmap address hints.
+  // See http://code.google.com/p/nativeclient/issues/3341
+  return NULL;
+#endif
   Isolate* isolate = Isolate::UncheckedCurrent();
   // Note that the current isolate isn't set up in a call path via
   // CpuFeatures::Probe. We don't care about randomization in this case because
@@ -109,20 +115,11 @@ void* OS::GetRandomMmapAddr() {
     raw_addr &= V8_UINT64_C(0x3ffffffff000);
 #else
     uint32_t raw_addr = V8::RandomPrivate(isolate);
-
-    // For our 32-bit mmap() hint, we pick a random address in the bottom
-    // half of the top half of the address space (that is, the third quarter).
-    // Because we do not MAP_FIXED, this will be treated only as a hint -- the
-    // system will not fail to mmap() because something else happens to already
-    // be mapped at our random address. We deliberately set the hint high enough
-    // to get well above the system's break (that is, the heap); systems will
-    // either try the hint and if that fails move higher (MacOS and other BSD
-    // derivatives) or try the hint and if that fails allocate as if there were
-    // no hint at all (Linux, Solaris, illumos and derivatives). The high hint
-    // prevents the break from getting hemmed in at low values, ceding half of
-    // the address space to the system heap.
+    // The range 0x20000000 - 0x60000000 is relatively unpopulated across a
+    // variety of ASLR modes (PAE kernel, NX compat mode, etc) and on macos
+    // 10.6 and 10.7.
     raw_addr &= 0x3ffff000;
-    raw_addr += 0x80000000;
+    raw_addr += 0x20000000;
 #endif
     return reinterpret_cast<void*>(raw_addr);
   }
@@ -151,14 +148,27 @@ UNARY_MATH_FUNCTION(sin, CreateTranscendentalFunction(TranscendentalCache::SIN))
 UNARY_MATH_FUNCTION(cos, CreateTranscendentalFunction(TranscendentalCache::COS))
 UNARY_MATH_FUNCTION(tan, CreateTranscendentalFunction(TranscendentalCache::TAN))
 UNARY_MATH_FUNCTION(log, CreateTranscendentalFunction(TranscendentalCache::LOG))
+UNARY_MATH_FUNCTION(exp, CreateExpFunction())
 UNARY_MATH_FUNCTION(sqrt, CreateSqrtFunction())
 
 #undef MATH_FUNCTION
 
 
+void lazily_initialize_fast_exp() {
+  if (fast_exp_function == NULL) {
+    init_fast_exp_function();
+  }
+}
+
+
 double OS::nan_value() {
   // NAN from math.h is defined in C99 and not in POSIX.
   return NAN;
+}
+
+
+int OS::GetCurrentProcessId() {
+  return static_cast<int>(getpid());
 }
 
 
@@ -194,7 +204,7 @@ int64_t OS::Ticks() {
 
 
 double OS::DaylightSavingsOffset(double time) {
-  if (isnan(time)) return nan_value();
+  if (std::isnan(time)) return nan_value();
   time_t tv = static_cast<time_t>(floor(time/msPerSecond));
   struct tm* t = localtime(&tv);
   if (NULL == t) return nan_value();
@@ -312,30 +322,39 @@ int OS::VSNPrintF(Vector<char> str,
 
 
 #if defined(V8_TARGET_ARCH_IA32)
-static OS::MemCopyFunction memcopy_function = NULL;
-// Defined in codegen-ia32.cc.
-OS::MemCopyFunction CreateMemCopyFunction();
+static void MemMoveWrapper(void* dest, const void* src, size_t size) {
+  memmove(dest, src, size);
+}
 
-// Copy memory area to disjoint memory area.
-void OS::MemCopy(void* dest, const void* src, size_t size) {
+// Initialize to library version so we can call this at any time during startup.
+static OS::MemMoveFunction memmove_function = &MemMoveWrapper;
+
+// Defined in codegen-ia32.cc.
+OS::MemMoveFunction CreateMemMoveFunction();
+
+// Copy memory area. No restrictions.
+void OS::MemMove(void* dest, const void* src, size_t size) {
+  if (size == 0) return;
   // Note: here we rely on dependent reads being ordered. This is true
   // on all architectures we currently support.
-  (*memcopy_function)(dest, src, size);
-#ifdef DEBUG
-  CHECK_EQ(0, memcmp(dest, src, size));
-#endif
+  (*memmove_function)(dest, src, size);
 }
+
 #endif  // V8_TARGET_ARCH_IA32
 
 
 void POSIXPostSetUp() {
 #if defined(V8_TARGET_ARCH_IA32)
-  memcopy_function = CreateMemCopyFunction();
+  OS::MemMoveFunction generated_memmove = CreateMemMoveFunction();
+  if (generated_memmove != NULL) {
+    memmove_function = generated_memmove;
+  }
 #endif
   init_fast_sin_function();
   init_fast_cos_function();
   init_fast_tan_function();
   init_fast_log_function();
+  // fast_exp is initialized lazily.
   init_fast_sqrt_function();
 }
 

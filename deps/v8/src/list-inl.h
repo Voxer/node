@@ -29,6 +29,7 @@
 #define V8_LIST_INL_H_
 
 #include "list.h"
+#include "platform.h"
 
 namespace v8 {
 namespace internal {
@@ -85,8 +86,9 @@ void List<T, P>::ResizeAddInternal(const T& element, P alloc) {
 
 template<typename T, class P>
 void List<T, P>::Resize(int new_capacity, P alloc) {
+  ASSERT_LE(length_, new_capacity);
   T* new_data = NewData(new_capacity, alloc);
-  memcpy(new_data, data_, capacity_ * sizeof(T));
+  OS::MemCopy(new_data, data_, length_ * sizeof(T));
   List<T, P>::DeleteData(data_);
   data_ = new_data;
   capacity_ = new_capacity;
@@ -162,6 +164,14 @@ void List<T, P>::Rewind(int pos) {
 
 
 template<typename T, class P>
+void List<T, P>::Trim(P alloc) {
+  if (length_ < capacity_ / 4) {
+    Resize(capacity_ / 2, alloc);
+  }
+}
+
+
+template<typename T, class P>
 void List<T, P>::Iterate(void (*callback)(T* x)) {
   for (int i = 0; i < length_; i++) callback(&data_[i]);
 }
@@ -206,7 +216,7 @@ void List<T, P>::Sort(int (*cmp)(const T* x, const T* y)) {
 
 template<typename T, class P>
 void List<T, P>::Sort() {
-  Sort(PointerValueCompare<T>);
+  ToVector().Sort();
 }
 
 

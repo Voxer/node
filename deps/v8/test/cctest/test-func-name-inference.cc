@@ -28,6 +28,7 @@
 #include "v8.h"
 
 #include "api.h"
+#include "debug.h"
 #include "runtime.h"
 #include "cctest.h"
 
@@ -44,19 +45,6 @@ using ::v8::internal::Script;
 using ::v8::internal::SmartArrayPointer;
 using ::v8::internal::SharedFunctionInfo;
 using ::v8::internal::String;
-
-
-static v8::Persistent<v8::Context> env;
-
-
-static void InitializeVM() {
-  if (env.IsEmpty()) {
-    v8::HandleScope scope;
-    env = v8::Context::New();
-  }
-  v8::HandleScope scope;
-  env->Enter();
-}
 
 
 static void CheckFunctionName(v8::Handle<v8::Script> script,
@@ -87,10 +75,10 @@ static void CheckFunctionName(v8::Handle<v8::Script> script,
 
 #ifdef ENABLE_DEBUGGER_SUPPORT
   // Obtain SharedFunctionInfo for the function.
+  Isolate::Current()->debug()->PrepareForBreakPoints();
   Object* shared_func_info_ptr =
-      Runtime::FindSharedFunctionInfoInScript(Isolate::Current(),
-                                              i_script,
-                                              func_pos);
+      Isolate::Current()->debug()->FindSharedFunctionInfoInScript(i_script,
+                                                                  func_pos);
   CHECK(shared_func_info_ptr != HEAP->undefined_value());
   Handle<SharedFunctionInfo> shared_func_info(
       SharedFunctionInfo::cast(shared_func_info_ptr));
@@ -109,8 +97,8 @@ static v8::Handle<v8::Script> Compile(const char* src) {
 
 
 TEST(GlobalProperty) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "fun1 = function() { return 1; }\n"
@@ -121,8 +109,8 @@ TEST(GlobalProperty) {
 
 
 TEST(GlobalVar) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "var fun1 = function() { return 1; }\n"
@@ -133,8 +121,8 @@ TEST(GlobalVar) {
 
 
 TEST(LocalVar) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "function outer() {\n"
@@ -147,8 +135,8 @@ TEST(LocalVar) {
 
 
 TEST(InConstructor) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "function MyClass() {\n"
@@ -161,8 +149,8 @@ TEST(InConstructor) {
 
 
 TEST(Factory) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "function createMyObj() {\n"
@@ -177,8 +165,8 @@ TEST(Factory) {
 
 
 TEST(Static) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "function MyClass() {}\n"
@@ -195,8 +183,8 @@ TEST(Static) {
 
 
 TEST(Prototype) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "function MyClass() {}\n"
@@ -213,8 +201,8 @@ TEST(Prototype) {
 
 
 TEST(ObjectLiteral) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "function MyClass() {}\n"
@@ -227,8 +215,8 @@ TEST(ObjectLiteral) {
 
 
 TEST(AsParameter) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "function f1(a) { return a(); }\n"
@@ -243,8 +231,8 @@ TEST(AsParameter) {
 
 
 TEST(MultipleFuncsConditional) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "fun1 = 0 ?\n"
@@ -256,8 +244,8 @@ TEST(MultipleFuncsConditional) {
 
 
 TEST(MultipleFuncsInLiteral) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "function MyClass() {}\n"
@@ -271,8 +259,8 @@ TEST(MultipleFuncsInLiteral) {
 
 // See http://code.google.com/p/v8/issues/detail?id=380
 TEST(Issue380) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "function a() {\n"
@@ -284,8 +272,8 @@ TEST(Issue380) {
 
 
 TEST(MultipleAssignments) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "var fun1 = fun2 = function () { return 1; }\n"
@@ -300,8 +288,8 @@ TEST(MultipleAssignments) {
 
 
 TEST(AsConstructorParameter) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "function Foo() {}\n"
@@ -314,8 +302,8 @@ TEST(AsConstructorParameter) {
 
 
 TEST(FactoryHashmap) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "function createMyObj() {\n"
@@ -330,8 +318,8 @@ TEST(FactoryHashmap) {
 
 
 TEST(FactoryHashmapVariable) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "function createMyObj() {\n"
@@ -349,8 +337,8 @@ TEST(FactoryHashmapVariable) {
 
 
 TEST(FactoryHashmapConditional) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "function createMyObj() {\n"
@@ -364,8 +352,8 @@ TEST(FactoryHashmapConditional) {
 
 
 TEST(GlobalAssignmentAndCall) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "var Foo = function() {\n"
@@ -382,8 +370,8 @@ TEST(GlobalAssignmentAndCall) {
 
 
 TEST(AssignmentAndCall) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "(function Enclosing() {\n"
@@ -398,13 +386,15 @@ TEST(AssignmentAndCall) {
   // The inferred name is empty, because this is an assignment of a result.
   CheckFunctionName(script, "return 1", "");
   // See MultipleAssignments test.
-  CheckFunctionName(script, "return 2", "Enclosing.Bar");
+  // TODO(2276): Lazy compiling the enclosing outer closure would yield
+  // in "Enclosing.Bar" being the inferred name here.
+  CheckFunctionName(script, "return 2", "Bar");
 }
 
 
 TEST(MethodAssignmentInAnonymousFunctionCall) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "(function () {\n"
@@ -419,8 +409,8 @@ TEST(MethodAssignmentInAnonymousFunctionCall) {
 
 
 TEST(ReturnAnonymousFunction) {
-  InitializeVM();
-  v8::HandleScope scope;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
 
   v8::Handle<v8::Script> script = Compile(
       "(function() {\n"

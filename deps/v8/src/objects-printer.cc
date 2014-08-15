@@ -69,13 +69,16 @@ void HeapObject::PrintHeader(FILE* out, const char* id) {
 void HeapObject::HeapObjectPrint(FILE* out) {
   InstanceType instance_type = map()->instance_type();
 
-  HandleScope scope;
+  HandleScope scope(GetIsolate());
   if (instance_type < FIRST_NONSTRING_TYPE) {
     String::cast(this)->StringPrint(out);
     return;
   }
 
   switch (instance_type) {
+    case SYMBOL_TYPE:
+      Symbol::cast(this)->SymbolPrint(out);
+      break;
     case MAP_TYPE:
       Map::cast(this)->MapPrint(out);
       break;
@@ -129,6 +132,7 @@ void HeapObject::HeapObjectPrint(FILE* out) {
     case JS_OBJECT_TYPE:  // fall through
     case JS_CONTEXT_EXTENSION_OBJECT_TYPE:
     case JS_ARRAY_TYPE:
+    case JS_GENERATOR_OBJECT_TYPE:
     case JS_REGEXP_TYPE:
       JSObject::cast(this)->JSObjectPrint(out);
       break;
@@ -180,6 +184,12 @@ void HeapObject::HeapObjectPrint(FILE* out) {
       break;
     case JS_GLOBAL_PROPERTY_CELL_TYPE:
       JSGlobalPropertyCell::cast(this)->JSGlobalPropertyCellPrint(out);
+      break;
+    case JS_ARRAY_BUFFER_TYPE:
+      JSArrayBuffer::cast(this)->JSArrayBufferPrint(out);
+      break;
+    case JS_TYPED_ARRAY_TYPE:
+      JSTypedArray::cast(this)->JSTypedArrayPrint(out);
       break;
 #define MAKE_STRUCT_CASE(NAME, Name, name) \
   case NAME##_TYPE:                        \
@@ -254,9 +264,9 @@ void ExternalDoubleArray::ExternalDoubleArrayPrint(FILE* out) {
 void JSObject::PrintProperties(FILE* out) {
   if (HasFastProperties()) {
     DescriptorArray* descs = map()->instance_descriptors();
-    for (int i = 0; i < descs->number_of_descriptors(); i++) {
+    for (int i = 0; i < map()->NumberOfOwnDescriptors(); i++) {
       PrintF(out, "   ");
-      descs->GetKey(i)->StringPrint(out);
+      descs->GetKey(i)->NamePrint(out);
       PrintF(out, ": ");
       switch (descs->GetType(i)) {
         case FIELD: {
@@ -273,18 +283,12 @@ void JSObject::PrintProperties(FILE* out) {
           descs->GetCallbacksObject(i)->ShortPrint(out);
           PrintF(out, " (callback)\n");
           break;
-        case MAP_TRANSITION:
-          PrintF(out, "(map transition)\n");
-          break;
-        case CONSTANT_TRANSITION:
-          PrintF(out, "(constant transition)\n");
-          break;
-        case NULL_DESCRIPTOR:
-          PrintF(out, "(null descriptor)\n");
-          break;
         case NORMAL:  // only in slow mode
         case HANDLER:  // only in lookup results, not in descriptors
         case INTERCEPTOR:  // only in lookup results, not in descriptors
+        // There are no transitions in the descriptor array.
+        case TRANSITION:
+        case NONEXISTENT:
           UNREACHABLE();
           break;
       }
@@ -390,7 +394,7 @@ void JSObject::PrintElements(FILE* out) {
     case EXTERNAL_DOUBLE_ELEMENTS: {
       ExternalDoubleArray* p = ExternalDoubleArray::cast(elements());
       for (int i = 0; i < p->length(); i++) {
-        PrintF(out, "  %d: %f\n", i, p->get_scalar(i));
+        PrintF(out, "   %d: %f\n", i, p->get_scalar(i));
       }
       break;
     }
@@ -399,12 +403,48 @@ void JSObject::PrintElements(FILE* out) {
       break;
     case NON_STRICT_ARGUMENTS_ELEMENTS: {
       FixedArray* p = FixedArray::cast(elements());
+      PrintF(out, "   parameter map:");
       for (int i = 2; i < p->length(); i++) {
-        PrintF(out, "   %d: ", i);
+        PrintF(out, " %d:", i - 2);
         p->get(i)->ShortPrint(out);
-        PrintF(out, "\n");
       }
+      PrintF(out, "\n   context: ");
+      p->get(0)->ShortPrint(out);
+      PrintF(out, "\n   arguments: ");
+      p->get(1)->ShortPrint(out);
+      PrintF(out, "\n");
       break;
+    }
+  }
+}
+
+
+void JSObject::PrintTransitions(FILE* out) {
+  if (!map()->HasTransitionArray()) return;
+  TransitionArray* transitions = map()->transitions();
+  for (int i = 0; i < transitions->number_of_transitions(); i++) {
+    PrintF(out, "   ");
+    transitions->GetKey(i)->NamePrint(out);
+    PrintF(out, ": ");
+    switch (transitions->GetTargetDetails(i).type()) {
+      case FIELD: {
+        PrintF(out, " (transition to field)\n");
+        break;
+      }
+      case CONSTANT_FUNCTION:
+        PrintF(out, " (transition to constant function)\n");
+        break;
+      case CALLBACKS:
+        PrintF(out, " (transition to callback)\n");
+        break;
+      // Values below are never in the target descriptor array.
+      case NORMAL:
+      case HANDLER:
+      case INTERCEPTOR:
+      case TRANSITION:
+      case NONEXISTENT:
+        UNREACHABLE();
+        break;
     }
   }
 }
@@ -419,11 +459,9 @@ void JSObject::JSObjectPrint(FILE* out) {
   PrintF(out,
          "]\n - prototype = %p\n",
          reinterpret_cast<void*>(GetPrototype()));
-  PrintF(out,
-         " - elements transition to = %p\n",
-         reinterpret_cast<void*>(map()->elements_transition_map()));
   PrintF(out, " {\n");
   PrintProperties(out);
+  PrintTransitions(out);
   PrintElements(out);
   PrintF(out, " }\n");
 }
@@ -434,6 +472,8 @@ void JSModule::JSModulePrint(FILE* out) {
   PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - context = ");
   context()->Print(out);
+  PrintF(out, " - scope_info = ");
+  scope_info()->ShortPrint(out);
   PrintElementsKind(out, this->map()->elements_kind());
   PrintF(out, " {\n");
   PrintProperties(out);
@@ -448,25 +488,32 @@ static const char* TypeToString(InstanceType type) {
     case MAP_TYPE: return "MAP";
     case HEAP_NUMBER_TYPE: return "HEAP_NUMBER";
     case SYMBOL_TYPE: return "SYMBOL";
-    case ASCII_SYMBOL_TYPE: return "ASCII_SYMBOL";
-    case CONS_SYMBOL_TYPE: return "CONS_SYMBOL";
-    case CONS_ASCII_SYMBOL_TYPE: return "CONS_ASCII_SYMBOL";
-    case EXTERNAL_ASCII_SYMBOL_TYPE:
-    case EXTERNAL_SYMBOL_WITH_ASCII_DATA_TYPE:
-    case EXTERNAL_SYMBOL_TYPE: return "EXTERNAL_SYMBOL";
-    case SHORT_EXTERNAL_ASCII_SYMBOL_TYPE:
-    case SHORT_EXTERNAL_SYMBOL_WITH_ASCII_DATA_TYPE:
-    case SHORT_EXTERNAL_SYMBOL_TYPE: return "SHORT_EXTERNAL_SYMBOL";
-    case ASCII_STRING_TYPE: return "ASCII_STRING";
     case STRING_TYPE: return "TWO_BYTE_STRING";
+    case ASCII_STRING_TYPE: return "ASCII_STRING";
     case CONS_STRING_TYPE:
-    case CONS_ASCII_STRING_TYPE: return "CONS_STRING";
+    case CONS_ASCII_STRING_TYPE:
+      return "CONS_STRING";
+    case EXTERNAL_STRING_TYPE:
     case EXTERNAL_ASCII_STRING_TYPE:
-    case EXTERNAL_STRING_WITH_ASCII_DATA_TYPE:
-    case EXTERNAL_STRING_TYPE: return "EXTERNAL_STRING";
+    case EXTERNAL_STRING_WITH_ONE_BYTE_DATA_TYPE:
+      return "EXTERNAL_STRING";
+    case SHORT_EXTERNAL_STRING_TYPE:
     case SHORT_EXTERNAL_ASCII_STRING_TYPE:
-    case SHORT_EXTERNAL_STRING_WITH_ASCII_DATA_TYPE:
-    case SHORT_EXTERNAL_STRING_TYPE: return "SHORT_EXTERNAL_STRING";
+    case SHORT_EXTERNAL_STRING_WITH_ONE_BYTE_DATA_TYPE:
+      return "SHORT_EXTERNAL_STRING";
+    case INTERNALIZED_STRING_TYPE: return "INTERNALIZED_STRING";
+    case ASCII_INTERNALIZED_STRING_TYPE: return "ASCII_INTERNALIZED_STRING";
+    case CONS_INTERNALIZED_STRING_TYPE: return "CONS_INTERNALIZED_STRING";
+    case CONS_ASCII_INTERNALIZED_STRING_TYPE:
+      return "CONS_ASCII_INTERNALIZED_STRING";
+    case EXTERNAL_INTERNALIZED_STRING_TYPE:
+    case EXTERNAL_ASCII_INTERNALIZED_STRING_TYPE:
+    case EXTERNAL_INTERNALIZED_STRING_WITH_ONE_BYTE_DATA_TYPE:
+      return "EXTERNAL_INTERNALIZED_STRING";
+    case SHORT_EXTERNAL_INTERNALIZED_STRING_TYPE:
+    case SHORT_EXTERNAL_ASCII_INTERNALIZED_STRING_TYPE:
+    case SHORT_EXTERNAL_INTERNALIZED_STRING_WITH_ONE_BYTE_DATA_TYPE:
+      return "SHORT_EXTERNAL_INTERNALIZED_STRING";
     case FIXED_ARRAY_TYPE: return "FIXED_ARRAY";
     case BYTE_ARRAY_TYPE: return "BYTE_ARRAY";
     case FREE_SPACE_TYPE: return "FREE_SPACE";
@@ -488,6 +535,7 @@ static const char* TypeToString(InstanceType type) {
     case ODDBALL_TYPE: return "ODDBALL";
     case JS_GLOBAL_PROPERTY_CELL_TYPE: return "JS_GLOBAL_PROPERTY_CELL";
     case SHARED_FUNCTION_INFO_TYPE: return "SHARED_FUNCTION_INFO";
+    case JS_GENERATOR_OBJECT_TYPE: return "JS_GENERATOR_OBJECT";
     case JS_MODULE_TYPE: return "JS_MODULE";
     case JS_FUNCTION_TYPE: return "JS_FUNCTION";
     case CODE_TYPE: return "CODE";
@@ -506,6 +554,15 @@ static const char* TypeToString(InstanceType type) {
 #undef MAKE_STRUCT_CASE
     default: return "UNKNOWN";
   }
+}
+
+
+void Symbol::SymbolPrint(FILE* out) {
+  HeapObject::PrintHeader(out, "Symbol");
+  PrintF(out, " - hash: %d\n", Hash());
+  PrintF(out, " - name: ");
+  name()->ShortPrint();
+  PrintF(out, "\n");
 }
 
 
@@ -537,14 +594,24 @@ void Map::MapPrint(FILE* out) {
   if (is_access_check_needed()) {
     PrintF(out, " - access_check_needed\n");
   }
-  PrintF(out, " - instance descriptors: ");
+  PrintF(out, " - back pointer: ");
+  GetBackPointer()->ShortPrint(out);
+  PrintF(out, "\n - instance descriptors %i #%i: ",
+         owns_descriptors(),
+         NumberOfOwnDescriptors());
   instance_descriptors()->ShortPrint(out);
+  if (HasTransitionArray()) {
+    PrintF(out, "\n - transitions: ");
+    transitions()->ShortPrint(out);
+  }
   PrintF(out, "\n - prototype: ");
   prototype()->ShortPrint(out);
   PrintF(out, "\n - constructor: ");
   constructor()->ShortPrint(out);
   PrintF(out, "\n - code cache: ");
   code_cache()->ShortPrint(out);
+  PrintF(out, "\n - dependent code: ");
+  dependent_code()->ShortPrint(out);
   PrintF(out, "\n");
 }
 
@@ -567,9 +634,9 @@ void PolymorphicCodeCache::PolymorphicCodeCachePrint(FILE* out) {
 
 void TypeFeedbackInfo::TypeFeedbackInfoPrint(FILE* out) {
   HeapObject::PrintHeader(out, "TypeFeedbackInfo");
-  PrintF(out, "\n - ic_total_count: %d, ic_with_type_info_count: %d",
+  PrintF(out, " - ic_total_count: %d, ic_with_type_info_count: %d\n",
          ic_total_count(), ic_with_type_info_count());
-  PrintF(out, "\n - type_feedback_cells: ");
+  PrintF(out, " - type_feedback_cells: ");
   type_feedback_cells()->FixedArrayPrint(out);
 }
 
@@ -630,7 +697,7 @@ void JSMessageObject::JSMessageObjectPrint(FILE* out) {
 
 
 void String::StringPrint(FILE* out) {
-  if (StringShape(this).IsSymbol()) {
+  if (StringShape(this).IsInternalized()) {
     PrintF(out, "#");
   } else if (StringShape(this).IsCons()) {
     PrintF(out, "c\"");
@@ -652,7 +719,15 @@ void String::StringPrint(FILE* out) {
     PrintF(out, "%s", truncated_epilogue);
   }
 
-  if (!StringShape(this).IsSymbol()) PrintF(out, "\"");
+  if (!StringShape(this).IsInternalized()) PrintF(out, "\"");
+}
+
+
+void Name::NamePrint(FILE* out) {
+  if (IsString())
+    String::cast(this)->StringPrint(out);
+  else
+    ShortPrint();
 }
 
 
@@ -665,7 +740,7 @@ char* String::ToAsciiArray() {
   static char* buffer = NULL;
   if (buffer != NULL) free(buffer);
   buffer = new char[length()+1];
-  WriteToFlat(this, buffer, 0, length());
+  WriteToFlat(this, reinterpret_cast<uint8_t*>(buffer), 0, length());
   buffer[length()] = 0;
   return buffer;
 }
@@ -728,6 +803,32 @@ void JSWeakMap::JSWeakMapPrint(FILE* out) {
 }
 
 
+void JSArrayBuffer::JSArrayBufferPrint(FILE* out) {
+  HeapObject::PrintHeader(out, "JSArrayBuffer");
+  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - backing_store = -0x%p\n", backing_store());
+  PrintF(out, " - byte_length = ");
+  byte_length()->ShortPrint(out);
+  PrintF(out, "\n");
+}
+
+
+void JSTypedArray::JSTypedArrayPrint(FILE* out) {
+  HeapObject::PrintHeader(out, "JSTypedArray");
+  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - buffer =");
+  buffer()->ShortPrint(out);
+  PrintF(out, "\n - byte_offset = ");
+  byte_offset()->ShortPrint(out);
+  PrintF(out, "\n - byte_length = ");
+  byte_length()->ShortPrint(out);
+  PrintF(out, " - length = ");
+  length()->ShortPrint(out);
+  PrintF("\n");
+  PrintElements(out);
+}
+
+
 void JSFunction::JSFunctionPrint(FILE* out) {
   HeapObject::PrintHeader(out, "Function");
   PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
@@ -741,6 +842,8 @@ void JSFunction::JSFunctionPrint(FILE* out) {
   shared()->name()->Print(out);
   PrintF(out, "\n - context = ");
   unchecked_context()->ShortPrint(out);
+  PrintF(out, "\n - literals = ");
+  literals()->ShortPrint(out);
   PrintF(out, "\n - code = ");
   code()->ShortPrint(out);
   PrintF(out, "\n");
@@ -761,8 +864,17 @@ void SharedFunctionInfo::SharedFunctionInfoPrint(FILE* out) {
   instance_class_name()->Print(out);
   PrintF(out, "\n - code = ");
   code()->ShortPrint(out);
-  PrintF(out, "\n - source code = ");
-  GetSourceCode()->ShortPrint(out);
+  if (HasSourceCode()) {
+    PrintF(out, "\n - source code = ");
+    String* source = String::cast(Script::cast(script())->source());
+    int start = start_position();
+    int length = end_position() - start;
+    SmartArrayPointer<char> source_string =
+        source->ToCString(DISALLOW_NULLS,
+                          FAST_STRING_TRAVERSAL,
+                          start, length, NULL);
+    PrintF(out, "%s", *source_string);
+  }
   // Script files are often large, hard to read.
   // PrintF(out, "\n - script =");
   // script()->Print(out);
@@ -782,10 +894,10 @@ void SharedFunctionInfo::SharedFunctionInfoPrint(FILE* out) {
 
 
 void JSGlobalProxy::JSGlobalProxyPrint(FILE* out) {
-  PrintF(out, "global_proxy");
+  PrintF(out, "global_proxy ");
   JSObjectPrint(out);
-  PrintF(out, "context : ");
-  context()->ShortPrint(out);
+  PrintF(out, "native context : ");
+  native_context()->ShortPrint(out);
   PrintF(out, "\n");
 }
 
@@ -793,8 +905,8 @@ void JSGlobalProxy::JSGlobalProxyPrint(FILE* out) {
 void JSGlobalObject::JSGlobalObjectPrint(FILE* out) {
   PrintF(out, "global ");
   JSObjectPrint(out);
-  PrintF(out, "global context : ");
-  global_context()->ShortPrint(out);
+  PrintF(out, "native context : ");
+  native_context()->ShortPrint(out);
   PrintF(out, "\n");
 }
 
@@ -825,18 +937,36 @@ void Foreign::ForeignPrint(FILE* out) {
 }
 
 
-void AccessorInfo::AccessorInfoPrint(FILE* out) {
-  HeapObject::PrintHeader(out, "AccessorInfo");
+void ExecutableAccessorInfo::ExecutableAccessorInfoPrint(FILE* out) {
+  HeapObject::PrintHeader(out, "ExecutableAccessorInfo");
+  PrintF(out, "\n - name: ");
+  name()->ShortPrint(out);
+  PrintF(out, "\n - flag: ");
+  flag()->ShortPrint(out);
   PrintF(out, "\n - getter: ");
   getter()->ShortPrint(out);
   PrintF(out, "\n - setter: ");
   setter()->ShortPrint(out);
-  PrintF(out, "\n - name: ");
-  name()->ShortPrint(out);
   PrintF(out, "\n - data: ");
   data()->ShortPrint(out);
+}
+
+
+void DeclaredAccessorInfo::DeclaredAccessorInfoPrint(FILE* out) {
+  HeapObject::PrintHeader(out, "DeclaredAccessorInfo");
+  PrintF(out, "\n - name: ");
+  name()->ShortPrint(out);
   PrintF(out, "\n - flag: ");
   flag()->ShortPrint(out);
+  PrintF(out, "\n - descriptor: ");
+  descriptor()->ShortPrint(out);
+}
+
+
+void DeclaredAccessorDescriptor::DeclaredAccessorDescriptorPrint(FILE* out) {
+  HeapObject::PrintHeader(out, "DeclaredAccessorDescriptor");
+  PrintF(out, "\n - internal field: ");
+  serialized_data()->ShortPrint(out);
 }
 
 
@@ -953,6 +1083,33 @@ void TypeSwitchInfo::TypeSwitchInfoPrint(FILE* out) {
 }
 
 
+void AllocationSiteInfo::AllocationSiteInfoPrint(FILE* out) {
+  HeapObject::PrintHeader(out, "AllocationSiteInfo");
+  PrintF(out, " - payload: ");
+  if (payload()->IsJSGlobalPropertyCell()) {
+    JSGlobalPropertyCell* cell = JSGlobalPropertyCell::cast(payload());
+    Object* cell_contents = cell->value();
+    if (cell_contents->IsSmi()) {
+      ElementsKind kind = static_cast<ElementsKind>(
+          Smi::cast(cell_contents)->value());
+      PrintF(out, "Array allocation with ElementsKind ");
+      PrintElementsKind(out, kind);
+      PrintF(out, "\n");
+      return;
+    }
+  } else if (payload()->IsJSArray()) {
+    PrintF(out, "Array literal ");
+    payload()->ShortPrint(out);
+    PrintF(out, "\n");
+    return;
+  }
+
+  PrintF(out, "unknown payload ");
+  payload()->ShortPrint(out);
+  PrintF(out, "\n");
+}
+
+
 void Script::ScriptPrint(FILE* out) {
   HeapObject::PrintHeader(out, "Script");
   PrintF(out, "\n - source: ");
@@ -1017,6 +1174,37 @@ void DescriptorArray::PrintDescriptors(FILE* out) {
     Descriptor desc;
     Get(i, &desc);
     desc.Print(out);
+  }
+  PrintF(out, "\n");
+}
+
+
+void TransitionArray::PrintTransitions(FILE* out) {
+  PrintF(out, "Transition array  %d\n", number_of_transitions());
+  for (int i = 0; i < number_of_transitions(); i++) {
+    PrintF(out, " %d: ", i);
+    GetKey(i)->NamePrint(out);
+    PrintF(out, ": ");
+    switch (GetTargetDetails(i).type()) {
+      case FIELD: {
+        PrintF(out, " (transition to field)\n");
+        break;
+      }
+      case CONSTANT_FUNCTION:
+        PrintF(out, " (transition to constant function)\n");
+        break;
+      case CALLBACKS:
+        PrintF(out, " (transition to callback)\n");
+        break;
+      // Values below are never in the target descriptor array.
+      case NORMAL:
+      case HANDLER:
+      case INTERCEPTOR:
+      case TRANSITION:
+      case NONEXISTENT:
+        UNREACHABLE();
+        break;
+    }
   }
   PrintF(out, "\n");
 }

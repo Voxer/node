@@ -142,7 +142,9 @@ class Simulator {
     num_s_registers = 32,
     d0 = 0, d1, d2, d3, d4, d5, d6, d7,
     d8, d9, d10, d11, d12, d13, d14, d15,
-    num_d_registers = 16
+    d16, d17, d18, d19, d20, d21, d22, d23,
+    d24, d25, d26, d27, d28, d29, d30, d31,
+    num_d_registers = 32
   };
 
   explicit Simulator(Isolate* isolate);
@@ -163,12 +165,30 @@ class Simulator {
   // Support for VFP.
   void set_s_register(int reg, unsigned int value);
   unsigned int get_s_register(int reg) const;
-  void set_d_register_from_double(int dreg, const double& dbl);
-  double get_double_from_d_register(int dreg);
-  void set_s_register_from_float(int sreg, const float dbl);
-  float get_float_from_s_register(int sreg);
-  void set_s_register_from_sinteger(int reg, const int value);
-  int get_sinteger_from_s_register(int reg);
+
+  void set_d_register_from_double(int dreg, const double& dbl) {
+    SetVFPRegister<double, 2>(dreg, dbl);
+  }
+
+  double get_double_from_d_register(int dreg) {
+    return GetFromVFPRegister<double, 2>(dreg);
+  }
+
+  void set_s_register_from_float(int sreg, const float flt) {
+    SetVFPRegister<float, 1>(sreg, flt);
+  }
+
+  float get_float_from_s_register(int sreg) {
+    return GetFromVFPRegister<float, 1>(sreg);
+  }
+
+  void set_s_register_from_sinteger(int sreg, const int sint) {
+    SetVFPRegister<int, 1>(sreg, sint);
+  }
+
+  int get_sinteger_from_s_register(int sreg) {
+    return GetFromVFPRegister<int, 1>(sreg);
+  }
 
   // Special case of set_register and get_register to access the raw PC value.
   void set_pc(int32_t value);
@@ -187,6 +207,8 @@ class Simulator {
   // generated RegExp code with 7 parameters. This is a convenience function,
   // which sets up the simulator state and grabs the result on return.
   int32_t Call(byte* entry, int argument_count, ...);
+  // Alternative: call a 2-argument double function.
+  double CallFP(byte* entry, double d0, double d1);
 
   // Push an address onto the JS stack.
   uintptr_t PushAddress(uintptr_t address);
@@ -252,6 +274,7 @@ class Simulator {
   // Support for VFP.
   void Compute_FPSCR_Flags(double val1, double val2);
   void Copy_FPSCR_to_APSR();
+  inline double canonicalizeNaN(double value);
 
   // Helper functions to decode common "addressing" modes
   int32_t GetShiftRm(Instruction* instr, bool* carry_out);
@@ -325,12 +348,18 @@ class Simulator {
       void* external_function,
       v8::internal::ExternalReference::Type type);
 
-  // For use in calls that take double value arguments.
-  void GetFpArgs(double* x, double* y);
-  void GetFpArgs(double* x);
-  void GetFpArgs(double* x, int32_t* y);
+  // Handle arguments and return value for runtime FP functions.
+  void GetFpArgs(double* x, double* y, int32_t* z);
   void SetFpResult(const double& result);
   void TrashCallerSaveRegisters();
+
+  template<class ReturnType, int register_size>
+      ReturnType GetFromVFPRegister(int reg_index);
+
+  template<class InputType, int register_size>
+      void SetVFPRegister(int reg_index, const InputType& value);
+
+  void CallInternal(byte* entry);
 
   // Architecture state.
   // Saturating instructions require a Q flag to indicate saturation.
@@ -343,7 +372,7 @@ class Simulator {
   bool v_flag_;
 
   // VFP architecture state.
-  unsigned int vfp_register[num_s_registers];
+  unsigned int vfp_registers_[num_d_registers * 2];
   bool n_flag_FPSCR_;
   bool z_flag_FPSCR_;
   bool c_flag_FPSCR_;
@@ -351,6 +380,7 @@ class Simulator {
 
   // VFP rounding mode. See ARM DDI 0406B Page A2-29.
   VFPRoundingMode FPSCR_rounding_mode_;
+  bool FPSCR_default_NaN_mode_;
 
   // VFP FP exception flags architecture state.
   bool inv_op_vfp_flag_;
@@ -384,14 +414,14 @@ class Simulator {
   static const uint32_t kStopDisabledBit = 1 << 31;
 
   // A stop is enabled, meaning the simulator will stop when meeting the
-  // instruction, if bit 31 of watched_stops[code].count is unset.
-  // The value watched_stops[code].count & ~(1 << 31) indicates how many times
+  // instruction, if bit 31 of watched_stops_[code].count is unset.
+  // The value watched_stops_[code].count & ~(1 << 31) indicates how many times
   // the breakpoint was hit or gone through.
   struct StopCountAndDesc {
     uint32_t count;
     char* desc;
   };
-  StopCountAndDesc watched_stops[kNumOfWatchedStops];
+  StopCountAndDesc watched_stops_[kNumOfWatchedStops];
 };
 
 

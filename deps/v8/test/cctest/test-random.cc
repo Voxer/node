@@ -52,7 +52,7 @@ void TestSeeds(Handle<JSFunction> fun,
                uint32_t state0,
                uint32_t state1) {
   bool has_pending_exception;
-  Handle<JSObject> global(context->global());
+  Handle<JSObject> global(context->global_object());
   Handle<ByteArray> seeds(context->random_seed());
 
   SetSeeds(seeds, state0, state1);
@@ -73,19 +73,20 @@ TEST(CrankshaftRandom) {
   if (env.IsEmpty()) env = v8::Context::New();
   // Skip test if crankshaft is disabled.
   if (!V8::UseCrankshaft()) return;
-  v8::HandleScope scope;
+  v8::HandleScope scope(env->GetIsolate());
   env->Enter();
 
   Handle<Context> context(Isolate::Current()->context());
-  Handle<JSObject> global(context->global());
+  Handle<JSObject> global(context->global_object());
   Handle<ByteArray> seeds(context->random_seed());
   bool has_pending_exception;
 
   CompileRun("function f() { return Math.random(); }");
 
-  Object* symbol = FACTORY->LookupAsciiSymbol("f")->ToObjectChecked();
+  Object* string = FACTORY->InternalizeOneByteString(STATIC_ASCII_VECTOR("f"))->
+      ToObjectChecked();
   MaybeObject* fun_object =
-      context->global()->GetProperty(String::cast(symbol));
+      context->global_object()->GetProperty(String::cast(string));
   Handle<JSFunction> fun(JSFunction::cast(fun_object->ToObjectChecked()));
 
   // Optimize function.

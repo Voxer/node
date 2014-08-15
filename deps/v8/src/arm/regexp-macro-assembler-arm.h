@@ -30,19 +30,13 @@
 
 #include "arm/assembler-arm.h"
 #include "arm/assembler-arm-inl.h"
+#include "macro-assembler.h"
 
 namespace v8 {
 namespace internal {
 
 
-#ifdef V8_INTERPRETED_REGEXP
-class RegExpMacroAssemblerARM: public RegExpMacroAssembler {
- public:
-  RegExpMacroAssemblerARM();
-  virtual ~RegExpMacroAssemblerARM();
-};
-
-#else  // V8_INTERPRETED_REGEXP
+#ifndef V8_INTERPRETED_REGEXP
 class RegExpMacroAssemblerARM: public NativeRegExpMacroAssembler {
  public:
   RegExpMacroAssemblerARM(Mode mode, int registers_to_save, Zone* zone);
@@ -116,6 +110,7 @@ class RegExpMacroAssemblerARM: public NativeRegExpMacroAssembler {
   virtual void WriteCurrentPositionToRegister(int reg, int cp_offset);
   virtual void ClearRegisters(int reg_from, int reg_to);
   virtual void WriteStackPointerToRegister(int reg);
+  virtual bool CanReadUnaligned();
 
   // Called from RegExp if the stack-guard is triggered.
   // If the code object is relocated, the return address is fixed before
@@ -229,6 +224,7 @@ class RegExpMacroAssemblerARM: public NativeRegExpMacroAssembler {
   inline void CallCFunctionUsingStub(ExternalReference function,
                                      int num_arguments);
 
+  Isolate* isolate() const { return masm_->isolate(); }
 
   MacroAssembler* masm_;
 

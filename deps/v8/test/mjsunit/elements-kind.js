@@ -26,6 +26,12 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Flags: --allow-natives-syntax --smi-only-arrays --expose-gc
+// Flags: --notrack_allocation_sites
+
+// Limit the number of stress runs to reduce polymorphism it defeats some of the
+// assumptions made about how elements transitions work because transition stubs
+// end up going generic.
+// Flags: --stress-runs=2
 
 // Test element kind of objects.
 // Since --smi-only-arrays affects builtins, its default setting at compile
@@ -143,7 +149,7 @@ assertKind(elements_kind.external_int,            new Int32Array(0xF));
 assertKind(elements_kind.external_unsigned_int,   new Uint32Array(23));
 assertKind(elements_kind.external_float,          new Float32Array(7));
 assertKind(elements_kind.external_double,         new Float64Array(0));
-assertKind(elements_kind.external_pixel,          new PixelArray(512));
+assertKind(elements_kind.external_pixel,          new Uint8ClampedArray(512));
 
 // Crankshaft support for smi-only array elements.
 function monomorphic(array) {
@@ -321,8 +327,7 @@ if (support_smi_only_arrays) {
   assertKind(elements_kind.fast_double, b);
   var c = a.concat(b);
   assertEquals([1, 2, 4.5, 5.5], c);
-  // TODO(1810): Change implementation so that we get DOUBLE elements here?
-  assertKind(elements_kind.fast, c);
+  assertKind(elements_kind.fast_double, c);
 }
 
 // Test that Array.push() correctly handles SMI elements.

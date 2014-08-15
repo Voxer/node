@@ -29,10 +29,11 @@
 
 {
   'variables': {
-    'library%': 'static_library',
     'component%': 'static_library',
     'visibility%': 'hidden',
+    'v8_enable_backtrace%': 0,
     'msvs_multi_core_compile%': '1',
+    'mac_deployment_target%': '10.5',
     'variables': {
       'variables': {
         'variables': {
@@ -45,7 +46,7 @@
               # to gyp.
               'host_arch%':
                 '<!(uname -m | sed -e "s/i.86/ia32/;\
-                  s/x86_64/x64/;s/amd64/x64/;s/arm.*/arm/;s/mips.*/mips/")',
+                  s/x86_64/x64/;s/amd64/x64/;s/arm.*/arm/;s/mips.*/mipsel/")',
             }, {
               # OS!="linux" and OS!="freebsd" and OS!="openbsd" and
               # OS!="netbsd" and OS!="mac"
@@ -66,23 +67,29 @@
     'werror%': '-Werror',
     'conditions': [
       ['(v8_target_arch=="arm" and host_arch!="arm") or \
-        (v8_target_arch=="mips" and host_arch!="mips") or \
-        (v8_target_arch=="x64" and host_arch!="x64")', {
+        (v8_target_arch=="mipsel" and host_arch!="mipsel") or \
+        (v8_target_arch=="x64" and host_arch!="x64") or \
+        (OS=="android")', {
         'want_separate_host_toolset': 1,
       }, {
         'want_separate_host_toolset': 0,
       }],
     ],
     # Default ARM variable settings.
-    'armv7%': 1,
+    'armv7%': 'default',
     'arm_neon%': 0,
     'arm_fpu%': 'vfpv3',
+    'arm_float_abi%': 'default',
+    'arm_thumb': 'default',
   },
   'target_defaults': {
     'default_configuration': 'Debug',
     'configurations': {
       'Debug': {
         'cflags': [ '-g', '-O0' ],
+      },
+      'Release': {
+        # Xcode insists on this empty entry.
       },
     },
   },
@@ -98,7 +105,7 @@
           [ 'OS=="linux"', {
             'cflags': [ '-ansi' ],
           }],
-          [ 'visibility=="hidden"', {
+          [ 'visibility=="hidden" and v8_enable_backtrace==0', {
             'cflags': [ '-fvisibility=hidden' ],
           }],
           [ 'component=="shared_library"', {
@@ -189,9 +196,10 @@
           'GCC_SYMBOLS_PRIVATE_EXTERN': 'YES',      # -fvisibility=hidden
           'GCC_THREADSAFE_STATICS': 'NO',           # -fno-threadsafe-statics
           'GCC_TREAT_WARNINGS_AS_ERRORS': 'YES',    # -Werror
-          'GCC_VERSION': '4.2',
+          'GCC_VERSION': 'com.apple.compilers.llvmgcc42',
           'GCC_WARN_ABOUT_MISSING_NEWLINE': 'YES',  # -Wnewline-eof
-          'MACOSX_DEPLOYMENT_TARGET': '10.4',       # -mmacosx-version-min=10.4
+          # MACOSX_DEPLOYMENT_TARGET maps to -mmacosx-version-min
+          'MACOSX_DEPLOYMENT_TARGET': '<(mac_deployment_target)',
           'PREBINDING': 'NO',                       # No -Wl,-prebind
           'SYMROOT': '<(DEPTH)/xcodebuild',
           'USE_HEADERMAP': 'NO',

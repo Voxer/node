@@ -267,7 +267,7 @@ void LGapResolver::EmitMove(int index) {
     }
 
   } else if (source->IsDoubleRegister()) {
-    DoubleRegister source_register = cgen_->ToDoubleRegister(source);
+    DwVfpRegister source_register = cgen_->ToDoubleRegister(source);
     if (destination->IsDoubleRegister()) {
       __ vmov(cgen_->ToDoubleRegister(destination), source_register);
     } else {

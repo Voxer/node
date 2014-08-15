@@ -83,7 +83,7 @@ TEST(ScanKeywords) {
     // Adding characters will make keyword matching fail.
     static const char chars_to_append[] = { 'z', '0', '_' };
     for (int j = 0; j < static_cast<int>(ARRAY_SIZE(chars_to_append)); ++j) {
-      memmove(buffer, keyword, length);
+      i::OS::MemMove(buffer, keyword, length);
       buffer[length] = chars_to_append[j];
       i::Utf8ToUtf16CharacterStream stream(buffer, length + 1);
       i::Scanner scanner(&unicode_cache);
@@ -93,7 +93,7 @@ TEST(ScanKeywords) {
     }
     // Replacing characters will make keyword matching fail.
     {
-      memmove(buffer, keyword, length);
+      i::OS::MemMove(buffer, keyword, length);
       buffer[length - 1] = '_';
       i::Utf8ToUtf16CharacterStream stream(buffer, length);
       i::Scanner scanner(&unicode_cache);
@@ -173,7 +173,7 @@ class ScriptResource : public v8::String::ExternalAsciiStringResource {
 
 
 TEST(Preparsing) {
-  v8::HandleScope handles;
+  v8::HandleScope handles(v8::Isolate::GetCurrent());
   v8::Persistent<v8::Context> context = v8::Context::New();
   v8::Context::Scope context_scope(context);
   int marker;
@@ -262,12 +262,11 @@ TEST(StandAlonePreParser) {
     i::Scanner scanner(i::Isolate::Current()->unicode_cache());
     scanner.Initialize(&stream);
 
-    int flags = i::kAllowLazy | i::kAllowNativesSyntax;
+    v8::preparser::PreParser preparser(&scanner, &log, stack_limit);
+    preparser.set_allow_lazy(true);
+    preparser.set_allow_natives_syntax(true);
     v8::preparser::PreParser::PreParseResult result =
-        v8::preparser::PreParser::PreParseProgram(&scanner,
-                                                  &log,
-                                                  flags,
-                                                  stack_limit);
+        preparser.PreParseProgram();
     CHECK_EQ(v8::preparser::PreParser::kPreParseSuccess, result);
     i::ScriptDataImpl data(log.ExtractData());
     CHECK(!data.has_error());
@@ -298,12 +297,11 @@ TEST(StandAlonePreParserNoNatives) {
     i::Scanner scanner(i::Isolate::Current()->unicode_cache());
     scanner.Initialize(&stream);
 
-    // Flags don't allow natives syntax.
+    // Preparser defaults to disallowing natives syntax.
+    v8::preparser::PreParser preparser(&scanner, &log, stack_limit);
+    preparser.set_allow_lazy(true);
     v8::preparser::PreParser::PreParseResult result =
-        v8::preparser::PreParser::PreParseProgram(&scanner,
-                                                  &log,
-                                                  i::kAllowLazy,
-                                                  stack_limit);
+        preparser.PreParseProgram();
     CHECK_EQ(v8::preparser::PreParser::kPreParseSuccess, result);
     i::ScriptDataImpl data(log.ExtractData());
     // Data contains syntax error.
@@ -329,8 +327,7 @@ TEST(RegressChromium62639) {
   i::Utf8ToUtf16CharacterStream stream(
       reinterpret_cast<const i::byte*>(program),
       static_cast<unsigned>(strlen(program)));
-  i::ScriptDataImpl* data =
-      i::ParserApi::PreParse(&stream, NULL, false);
+  i::ScriptDataImpl* data = i::PreParserApi::PreParse(&stream);
   CHECK(data->HasError());
   delete data;
 }
@@ -351,10 +348,11 @@ TEST(Regress928) {
       "try { } catch (e) { var foo = function () { /* first */ } }"
       "var bar = function () { /* second */ }";
 
-  v8::HandleScope handles;
+  v8::HandleScope handles(v8::Isolate::GetCurrent());
   i::Handle<i::String> source(
       FACTORY->NewStringFromAscii(i::CStrVector(program)));
-  i::ScriptDataImpl* data = i::ParserApi::PartialPreParse(source, NULL, false);
+  i::GenericStringUtf16CharacterStream stream(source, 0, source->length());
+  i::ScriptDataImpl* data = i::PreParserApi::PreParse(&stream);
   CHECK(!data->HasError());
 
   data->Initialize();
@@ -400,12 +398,10 @@ TEST(PreParseOverflow) {
   i::Scanner scanner(i::Isolate::Current()->unicode_cache());
   scanner.Initialize(&stream);
 
-
+  v8::preparser::PreParser preparser(&scanner, &log, stack_limit);
+  preparser.set_allow_lazy(true);
   v8::preparser::PreParser::PreParseResult result =
-      v8::preparser::PreParser::PreParseProgram(&scanner,
-                                                &log,
-                                                true,
-                                                stack_limit);
+      preparser.PreParseProgram();
   CHECK_EQ(v8::preparser::PreParser::kPreParseStackOverflow, result);
 }
 
@@ -438,7 +434,7 @@ void TestCharacterStream(const char* ascii_source,
                          unsigned end = 0) {
   if (end == 0) end = length;
   unsigned sub_length = end - start;
-  i::HandleScope test_scope;
+  i::HandleScope test_scope(i::Isolate::Current());
   i::SmartArrayPointer<i::uc16> uc16_buffer(new i::uc16[length]);
   for (unsigned i = 0; i < length; i++) {
     uc16_buffer[i] = static_cast<i::uc16>(ascii_source[i]);
@@ -543,7 +539,7 @@ void TestCharacterStream(const char* ascii_source,
 
 
 TEST(CharacterStreams) {
-  v8::HandleScope handles;
+  v8::HandleScope handles(v8::Isolate::GetCurrent());
   v8::Persistent<v8::Context> context = v8::Context::New();
   v8::Context::Scope context_scope(context);
 
@@ -987,14 +983,13 @@ TEST(ScopePositions) {
     { NULL, NULL, NULL, i::EVAL_SCOPE, i::CLASSIC_MODE }
   };
 
-  v8::HandleScope handles;
+  v8::HandleScope handles(v8::Isolate::GetCurrent());
   v8::Persistent<v8::Context> context = v8::Context::New();
   v8::Context::Scope context_scope(context);
 
   int marker;
   i::Isolate::Current()->stack_guard()->SetStackLimit(
       reinterpret_cast<uintptr_t>(&marker) - 128 * 1024);
-  i::FLAG_harmony_scoping = true;
 
   for (int i = 0; source_data[i].outer_prefix; i++) {
     int kPrefixLen = Utf8LengthHelper(source_data[i].outer_prefix);
@@ -1016,12 +1011,13 @@ TEST(ScopePositions) {
         FACTORY->NewStringFromUtf8(i::CStrVector(program.start())));
     CHECK_EQ(source->length(), kProgramSize);
     i::Handle<i::Script> script = FACTORY->NewScript(source);
-    i::Parser parser(script, i::kAllowLazy | i::EXTENDED_MODE, NULL, NULL,
-                     i::Isolate::Current()->zone());
-    i::CompilationInfo info(script);
+    i::CompilationInfoWithZone info(script);
+    i::Parser parser(&info);
+    parser.set_allow_lazy(true);
+    parser.set_allow_harmony_scoping(true);
     info.MarkAsGlobal();
     info.SetLanguageMode(source_data[i].language_mode);
-    i::FunctionLiteral* function = parser.ParseProgram(&info);
+    i::FunctionLiteral* function = parser.ParseProgram();
     CHECK(function != NULL);
 
     // Check scope types and positions.
@@ -1041,96 +1037,134 @@ TEST(ScopePositions) {
 }
 
 
-void TestParserSync(i::Handle<i::String> source, int flags) {
+i::Handle<i::String> FormatMessage(i::ScriptDataImpl* data) {
+  i::Handle<i::String> format = v8::Utils::OpenHandle(
+                                    *v8::String::New(data->BuildMessage()));
+  i::Vector<const char*> args = data->BuildArgs();
+  i::Handle<i::JSArray> args_array = FACTORY->NewJSArray(args.length());
+  for (int i = 0; i < args.length(); i++) {
+    i::JSArray::SetElement(args_array,
+                           i,
+                           v8::Utils::OpenHandle(*v8::String::New(args[i])),
+                           NONE,
+                           i::kNonStrictMode);
+  }
+  i::Handle<i::JSObject> builtins(i::Isolate::Current()->js_builtins_object());
+  i::Handle<i::Object> format_fun =
+      i::GetProperty(builtins, "FormatMessage");
+  i::Handle<i::Object> arg_handles[] = { format, args_array };
+  bool has_exception = false;
+  i::Handle<i::Object> result =
+      i::Execution::Call(format_fun, builtins, 2, arg_handles, &has_exception);
+  CHECK(!has_exception);
+  CHECK(result->IsString());
+  return i::Handle<i::String>::cast(result);
+}
+
+
+enum ParserFlag {
+  kAllowLazy,
+  kAllowNativesSyntax,
+  kAllowHarmonyScoping,
+  kAllowModules,
+  kAllowGenerators,
+  kParserFlagCount
+};
+
+
+static bool checkParserFlag(unsigned flags, ParserFlag flag) {
+  return flags & (1 << flag);
+}
+
+
+#define SET_PARSER_FLAGS(parser, flags) \
+  parser.set_allow_lazy(checkParserFlag(flags, kAllowLazy)); \
+  parser.set_allow_natives_syntax(checkParserFlag(flags, \
+                                                  kAllowNativesSyntax)); \
+  parser.set_allow_harmony_scoping(checkParserFlag(flags, \
+                                                   kAllowHarmonyScoping)); \
+  parser.set_allow_modules(checkParserFlag(flags, kAllowModules)); \
+  parser.set_allow_generators(checkParserFlag(flags, kAllowGenerators));
+
+void TestParserSyncWithFlags(i::Handle<i::String> source, unsigned flags) {
   uintptr_t stack_limit = i::Isolate::Current()->stack_guard()->real_climit();
-  bool harmony_scoping = ((i::kLanguageModeMask & flags) == i::EXTENDED_MODE);
 
   // Preparse the data.
   i::CompleteParserRecorder log;
-  i::Scanner scanner(i::Isolate::Current()->unicode_cache());
-  i::GenericStringUtf16CharacterStream stream(source, 0, source->length());
-  scanner.SetHarmonyScoping(harmony_scoping);
-  scanner.Initialize(&stream);
-  v8::preparser::PreParser::PreParseResult result =
-      v8::preparser::PreParser::PreParseProgram(
-          &scanner, &log, flags, stack_limit);
-  CHECK_EQ(v8::preparser::PreParser::kPreParseSuccess, result);
+  {
+    i::Scanner scanner(i::Isolate::Current()->unicode_cache());
+    i::GenericStringUtf16CharacterStream stream(source, 0, source->length());
+    v8::preparser::PreParser preparser(&scanner, &log, stack_limit);
+    SET_PARSER_FLAGS(preparser, flags);
+    scanner.Initialize(&stream);
+    v8::preparser::PreParser::PreParseResult result =
+        preparser.PreParseProgram();
+    CHECK_EQ(v8::preparser::PreParser::kPreParseSuccess, result);
+  }
   i::ScriptDataImpl data(log.ExtractData());
 
   // Parse the data
-  i::Handle<i::Script> script = FACTORY->NewScript(source);
-  bool save_harmony_scoping = i::FLAG_harmony_scoping;
-  i::FLAG_harmony_scoping = harmony_scoping;
-  i::Parser parser(script, flags, NULL, NULL, i::Isolate::Current()->zone());
-  i::CompilationInfo info(script);
-  info.MarkAsGlobal();
-  i::FunctionLiteral* function = parser.ParseProgram(&info);
-  i::FLAG_harmony_scoping = save_harmony_scoping;
+  i::FunctionLiteral* function;
+  {
+    i::Handle<i::Script> script = FACTORY->NewScript(source);
+    i::CompilationInfoWithZone info(script);
+    i::Parser parser(&info);
+    SET_PARSER_FLAGS(parser, flags);
+    info.MarkAsGlobal();
+    function = parser.ParseProgram();
+  }
 
-  i::String* type_string = NULL;
+  // Check that preparsing fails iff parsing fails.
   if (function == NULL) {
     // Extract exception from the parser.
-    i::Handle<i::String> type_symbol = FACTORY->LookupAsciiSymbol("type");
     CHECK(i::Isolate::Current()->has_pending_exception());
     i::MaybeObject* maybe_object = i::Isolate::Current()->pending_exception();
     i::JSObject* exception = NULL;
     CHECK(maybe_object->To(&exception));
+    i::Handle<i::JSObject> exception_handle(exception);
+    i::Handle<i::String> message_string =
+        i::Handle<i::String>::cast(i::GetProperty(exception_handle, "message"));
 
-    // Get the type string.
-    maybe_object = exception->GetProperty(*type_symbol);
-    CHECK(maybe_object->To(&type_string));
-  }
-
-  // Check that preparsing fails iff parsing fails.
-  if (data.has_error() && function != NULL) {
-    i::OS::Print(
-        "Preparser failed on:\n"
-        "\t%s\n"
-        "with error:\n"
-        "\t%s\n"
-        "However, the parser succeeded",
-        *source->ToCString(), data.BuildMessage());
-    CHECK(false);
-  } else if (!data.has_error() && function == NULL) {
-    i::OS::Print(
-        "Parser failed on:\n"
-        "\t%s\n"
-        "with error:\n"
-        "\t%s\n"
-        "However, the preparser succeeded",
-        *source->ToCString(), *type_string->ToCString());
-    CHECK(false);
-  }
-
-  // Check that preparser and parser produce the same error.
-  if (function == NULL) {
-    if (!type_string->IsEqualTo(i::CStrVector(data.BuildMessage()))) {
+    if (!data.has_error()) {
+      i::OS::Print(
+          "Parser failed on:\n"
+          "\t%s\n"
+          "with error:\n"
+          "\t%s\n"
+          "However, the preparser succeeded",
+          *source->ToCString(), *message_string->ToCString());
+      CHECK(false);
+    }
+    // Check that preparser and parser produce the same error.
+    i::Handle<i::String> preparser_message = FormatMessage(&data);
+    if (!message_string->Equals(*preparser_message)) {
       i::OS::Print(
           "Expected parser and preparser to produce the same error on:\n"
           "\t%s\n"
           "However, found the following error messages\n"
           "\tparser:    %s\n"
           "\tpreparser: %s\n",
-          *source->ToCString(), *type_string->ToCString(), data.BuildMessage());
+          *source->ToCString(),
+          *message_string->ToCString(),
+          *preparser_message->ToCString());
       CHECK(false);
     }
+  } else if (data.has_error()) {
+    i::OS::Print(
+        "Preparser failed on:\n"
+        "\t%s\n"
+        "with error:\n"
+        "\t%s\n"
+        "However, the parser succeeded",
+        *source->ToCString(), *FormatMessage(&data)->ToCString());
+    CHECK(false);
   }
 }
 
 
-void TestParserSyncWithFlags(i::Handle<i::String> source) {
-  static const int kFlagsCount = 6;
-  const int flags[kFlagsCount] = {
-    i::kNoParsingFlags | i::CLASSIC_MODE,
-    i::kNoParsingFlags | i::STRICT_MODE,
-    i::kNoParsingFlags | i::EXTENDED_MODE,
-    i::kAllowLazy | i::CLASSIC_MODE,
-    i::kAllowLazy | i::STRICT_MODE,
-    i::kAllowLazy | i::EXTENDED_MODE
-  };
-
-  for (int k = 0; k < kFlagsCount; ++k) {
-    TestParserSync(source, flags[k]);
+void TestParserSync(i::Handle<i::String> source) {
+  for (unsigned flags = 0; flags < (1 << kParserFlagCount); ++flags) {
+    TestParserSyncWithFlags(source, flags);
   }
 }
 
@@ -1148,6 +1182,7 @@ TEST(ParserSync) {
     { "with ({})", "" },
     { "switch (12) { case 12: ", "}" },
     { "switch (12) { default: ", "}" },
+    { "switch (12) { ", "case 12: }" },
     { "label2: ", "" },
     { NULL, NULL }
   };
@@ -1203,7 +1238,11 @@ TEST(ParserSync) {
     NULL
   };
 
-  v8::HandleScope handles;
+  // TODO(mstarzinger): Disabled in GC stress mode for now, we should find the
+  // correct timeout for this and re-enable this test again.
+  if (i::FLAG_stress_compaction) return;
+
+  v8::HandleScope handles(v8::Isolate::GetCurrent());
   v8::Persistent<v8::Context> context = v8::Context::New();
   v8::Context::Scope context_scope(context);
 
@@ -1232,8 +1271,31 @@ TEST(ParserSync) {
         CHECK(length == kProgramSize);
         i::Handle<i::String> source =
             FACTORY->NewStringFromAscii(i::CStrVector(program.start()));
-        TestParserSyncWithFlags(source);
+        TestParserSync(source);
       }
     }
   }
+}
+
+
+TEST(PreparserStrictOctal) {
+  // Test that syntax error caused by octal literal is reported correctly as
+  // such (issue 2220).
+  v8::internal::FLAG_min_preparse_length = 1;  // Force preparsing.
+  v8::V8::Initialize();
+  v8::HandleScope scope(v8::Isolate::GetCurrent());
+  v8::Context::Scope context_scope(v8::Context::New());
+  v8::TryCatch try_catch;
+  const char* script =
+      "\"use strict\";       \n"
+      "a = function() {      \n"
+      "  b = function() {    \n"
+      "    01;               \n"
+      "  };                  \n"
+      "};                    \n";
+  v8::Script::Compile(v8::String::New(script));
+  CHECK(try_catch.HasCaught());
+  v8::String::Utf8Value exception(try_catch.Exception());
+  CHECK_EQ("SyntaxError: Octal literals are not allowed in strict mode.",
+           *exception);
 }

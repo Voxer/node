@@ -213,6 +213,33 @@ Object* JavaScriptFrame::GetParameter(int index) const {
 }
 
 
+inline Address JavaScriptFrame::GetOperandSlot(int index) const {
+  Address base = fp() + JavaScriptFrameConstants::kLocal0Offset;
+  ASSERT(IsAddressAligned(base, kPointerSize));
+  ASSERT(type() == JAVA_SCRIPT);
+  ASSERT(index < ComputeOperandsCount());
+  // Operand stack grows down.
+  return base - index * kPointerSize;
+}
+
+
+inline Object* JavaScriptFrame::GetOperand(int index) const {
+  return Memory::Object_at(GetOperandSlot(index));
+}
+
+
+inline int JavaScriptFrame::ComputeOperandsCount() const {
+  Address base = fp() + JavaScriptFrameConstants::kLocal0Offset;
+  // Base points to low address of first operand and stack grows down, so add
+  // kPointerSize to get the actual stack size.
+  intptr_t stack_size_in_bytes = (base + kPointerSize) - sp();
+  ASSERT(IsAligned(stack_size_in_bytes, kPointerSize));
+  ASSERT(type() == JAVA_SCRIPT);
+  ASSERT(stack_size_in_bytes >= 0);
+  return static_cast<int>(stack_size_in_bytes >> kPointerSizeLog2);
+}
+
+
 inline Object* JavaScriptFrame::receiver() const {
   return GetParameter(-1);
 }
@@ -235,6 +262,11 @@ inline Object* JavaScriptFrame::function() const {
 }
 
 
+inline StubFrame::StubFrame(StackFrameIterator* iterator)
+    : StandardFrame(iterator) {
+}
+
+
 inline OptimizedFrame::OptimizedFrame(StackFrameIterator* iterator)
     : JavaScriptFrame(iterator) {
 }
@@ -247,6 +279,11 @@ inline ArgumentsAdaptorFrame::ArgumentsAdaptorFrame(
 
 inline InternalFrame::InternalFrame(StackFrameIterator* iterator)
     : StandardFrame(iterator) {
+}
+
+
+inline StubFailureTrampolineFrame::StubFailureTrampolineFrame(
+    StackFrameIterator* iterator) : StandardFrame(iterator) {
 }
 
 

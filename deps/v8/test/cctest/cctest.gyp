@@ -59,6 +59,7 @@
         'test-dataflow.cc',
         'test-date.cc',
         'test-debug.cc',
+        'test-declarative-accessors.cc',
         'test-decls.cc',
         'test-deoptimization.cc',
         'test-dictionary.cc',
@@ -69,6 +70,8 @@
         'test-fixed-dtoa.cc',
         'test-flags.cc',
         'test-func-name-inference.cc',
+        'test-global-handles.cc',
+        'test-global-object.cc',
         'test-hashing.cc',
         'test-hashmap.cc',
         'test-heap.cc',
@@ -79,7 +82,9 @@
         'test-lockers.cc',
         'test-log.cc',
         'test-mark-compact.cc',
+        'test-object-observe.cc',
         'test-parsing.cc',
+        'test-platform.cc',
         'test-platform-tls.cc',
         'test-profile-generator.cc',
         'test-random.cc',
@@ -89,6 +94,7 @@
         'test-sockets.cc',
         'test-spaces.cc',
         'test-strings.cc',
+        'test-symbols.cc',
         'test-strtod.cc',
         'test-thread-termination.cc',
         'test-threads.cc',
@@ -118,7 +124,7 @@
             'test-disasm-arm.cc'
           ],
         }],
-        ['v8_target_arch=="mips"', {
+        ['v8_target_arch=="mipsel"', {
           'sources': [
             'test-assembler-mips.cc',
             'test-disasm-mips.cc',
@@ -153,7 +159,9 @@
               'dependencies': ['../../tools/gyp/v8.gyp:v8_snapshot'],
             },
             {
-              'dependencies': ['../../tools/gyp/v8.gyp:v8_nosnapshot'],
+              'dependencies': [
+                '../../tools/gyp/v8.gyp:v8_nosnapshot.<(v8_target_arch)',
+              ],
             }],
           ],
         }, {

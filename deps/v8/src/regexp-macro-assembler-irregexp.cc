@@ -38,8 +38,10 @@ namespace internal {
 
 #ifdef V8_INTERPRETED_REGEXP
 
-RegExpMacroAssemblerIrregexp::RegExpMacroAssemblerIrregexp(Vector<byte> buffer)
-    : buffer_(buffer),
+RegExpMacroAssemblerIrregexp::RegExpMacroAssemblerIrregexp(Vector<byte> buffer,
+                                                           Zone* zone)
+    : RegExpMacroAssembler(zone),
+      buffer_(buffer),
       pc_(0),
       own_buffer_(false),
       advance_current_end_(kInvalidPC) {
@@ -477,7 +479,7 @@ int RegExpMacroAssemblerIrregexp::length() {
 
 
 void RegExpMacroAssemblerIrregexp::Copy(Address a) {
-  memcpy(a, buffer_.start(), length());
+  OS::MemCopy(a, buffer_.start(), length());
 }
 
 
@@ -486,7 +488,7 @@ void RegExpMacroAssemblerIrregexp::Expand() {
   Vector<byte> old_buffer = buffer_;
   buffer_ = Vector<byte>::New(old_buffer.length() * 2);
   own_buffer_ = true;
-  memcpy(buffer_.start(), old_buffer.start(), old_buffer.length());
+  OS::MemCopy(buffer_.start(), old_buffer.start(), old_buffer.length());
   if (old_buffer_was_our_own) {
     old_buffer.Dispose();
   }
