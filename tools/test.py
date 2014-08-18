@@ -31,7 +31,6 @@
 import imp
 import optparse
 import os
-from os.path import join, dirname, abspath, basename, isdir, exists
 import platform
 import re
 import signal
@@ -40,10 +39,11 @@ import sys
 import tempfile
 import time
 import threading
-from Queue import Queue, Empty
-
-sys.path.append(dirname(__file__) + "/../deps/v8/tools");
 import utils
+
+from os.path import join, dirname, abspath, basename, isdir, exists
+from datetime import datetime
+from Queue import Queue, Empty
 
 VERBOSE = False
 
@@ -115,9 +115,9 @@ class ProgressIndicator(object):
       self.AboutToRun(case)
       self.lock.release()
       try:
-        start = time.time()
+        start = datetime.now()
         output = case.Run()
-        case.duration = (time.time() - start)
+        case.duration = (datetime.now() - start)
       except IOError, e:
         assert self.terminate
         return
@@ -232,7 +232,7 @@ class TapProgressIndicator(SimpleProgressIndicator):
 
   def HasRun(self, output):
     self._done += 1
-    command = basename(output.command[1])
+    command = basename(output.command[-1])
     if output.UnexpectedOutput():
       print 'not ok %i - %s' % (self._done, command)
       for l in output.output.stderr.splitlines():
@@ -241,6 +241,16 @@ class TapProgressIndicator(SimpleProgressIndicator):
         print '#' + l
     else:
       print 'ok %i - %s' % (self._done, command)
+
+    duration = output.test.duration
+
+    # total_seconds() was added in 2.7
+    total_seconds = (duration.microseconds +
+      (duration.seconds + duration.days * 24 * 3600) * 10**6) / 10**6
+
+    print '  ---'
+    print '  duration_ms: %d.%d' % (total_seconds, duration.microseconds / 1000)
+    print '  ...'
 
   def Done(self):
     pass
@@ -400,10 +410,20 @@ class TestCase(object):
 
   def Run(self):
     self.BeforeRun()
+
     try:
       result = self.RunCommand(self.GetCommand())
     finally:
-      self.AfterRun(result)
+      # Tests can leave the tty in non-blocking mode. If the test runner
+      # tries to print to stdout/stderr after that and the tty buffer is
+      # full, it'll die with a EAGAIN OSError. Ergo, put the tty back in
+      # blocking mode before proceeding.
+      if sys.platform != 'win32':
+        from fcntl import fcntl, F_GETFL, F_SETFL
+        from os import O_NONBLOCK
+        for fd in 0,1,2: fcntl(fd, F_SETFL, ~O_NONBLOCK & fcntl(fd, F_GETFL))
+
+    self.AfterRun(result)
     return result
 
   def Cleanup(self):
@@ -657,6 +677,7 @@ class LiteralTestSuite(TestSuite):
       if not name or name.match(test_name):
         full_path = current_path + [test_name]
         test.AddTestsToList(result, full_path, path, context, mode)
+    result.sort(cmp=lambda a, b: cmp(a.GetName(), b.GetName()))
     return result
 
   def GetTestStatus(self, context, sections, defs):
@@ -1301,7 +1322,14 @@ def GetSpecialCommandProcessor(value):
     return ExpandCommand
 
 
-BUILT_IN_TESTS = ['simple', 'pummel', 'message', 'internet', 'gc']
+BUILT_IN_TESTS = [
+  'simple',
+  'pummel',
+  'message',
+  'internet',
+  'gc',
+  'debugger',
+]
 
 
 def GetSuites(test_root):
