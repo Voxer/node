@@ -17,10 +17,7 @@ if [[ -z $out ]]; then
 	fatal 'error: out directory must be specified as the first argument'
 fi
 
-tag=$(git rev-parse --abbrev-ref HEAD)
-tag=${tag:-unknown-build}
-
-configure_opts=(--tag="$tag")
+configure_opts=()
 case "$arch" in
 	x86) configuret_opts+=(--dest-cpu=ia32);;
 	x64) ;;
